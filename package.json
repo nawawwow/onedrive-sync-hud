@@ -1,0 +1,36 @@
+{
+  "name": "onedrive-sync-hud",
+  "version": "0.1.0",
+  "description": "Lightweight floating Windows 11 Fluent Glass HUD for Microsoft OneDrive sync progress",
+  "author": "Ahmad Nawawi <nawawwow@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nawawwow/onedrive-sync-hud.git"
+  },
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.5",
+    "@tauri-apps/plugin-global-shortcut": "^2.4.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "typescript": "^5.8.3",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}
