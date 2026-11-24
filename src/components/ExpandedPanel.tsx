@@ -191,15 +191,17 @@ export function ExpandedPanel({
             <CloudStatusIcon state={effectiveState} size={17} />
           </div>
           <div className="card-title-group">
-            <div className="card-title-row">
-              <span className="card-app-title">
-                {activeAccount ? activeAccount.displayName : "OneDrive"}
-              </span>
-              <span className={`state-chip ${tone}`}>{effectiveLabel}</span>
-            </div>
-            <span className="card-subtitle" title={effectiveSummary}>
-              {effectiveSummary}
+            <span className="card-app-title" title={activeAccount ? activeAccount.displayName : "OneDrive"}>
+              {activeAccount ? activeAccount.displayName : "OneDrive"}
             </span>
+            <div className="card-status-row">
+              <span className={`state-chip ${tone}`}>{effectiveLabel}</span>
+              {effectiveSummary && !effectiveSummary.toLowerCase().includes(effectiveLabel.toLowerCase()) ? (
+                <span className="card-subtitle" title={effectiveSummary}>
+                  {effectiveSummary}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
 

@@ -72,6 +72,9 @@ export function App() {
       listen<boolean>("hud-expanded-changed", (event) => {
         if (active) setExpanded(event.payload);
       }),
+      listen<boolean>("hud-anchor-changed", (event) => {
+        if (active) setExpandedUpward(event.payload);
+      }),
     ];
 
     return () => {
@@ -141,7 +144,6 @@ export function App() {
     if (settings.locked) return;
     try {
       await getCurrentWindow().startDragging();
-      await invoke("finish_drag");
     } catch {
       // ignore
     }
@@ -226,6 +228,7 @@ export function App() {
         <CompactPill
           snapshot={snapshot}
           locked={settings.locked}
+          expandUpward={expandedUpward}
           onExpand={handleExpand}
           onStartDrag={handleStartDrag}
         />

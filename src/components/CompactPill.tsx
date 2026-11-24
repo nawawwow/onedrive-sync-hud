@@ -7,6 +7,7 @@ import { ChevronIcon, CloudStatusIcon } from "./Icons";
 interface CompactPillProps {
   snapshot: HudSnapshot;
   locked: boolean;
+  expandUpward: boolean;
   onExpand: () => void;
   onStartDrag: () => void;
 }
@@ -14,6 +15,7 @@ interface CompactPillProps {
 export function CompactPill({
   snapshot,
   locked,
+  expandUpward,
   onExpand,
   onStartDrag,
 }: CompactPillProps) {
@@ -155,7 +157,7 @@ export function CompactPill({
       </div>
 
       <span className="pill-chevron" aria-hidden="true">
-        <ChevronIcon size={13} rotated={true} />
+        <ChevronIcon size={13} rotated={expandUpward} />
       </span>
     </div>
   );
