@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debounced drag-end edge snapping and position persistence using `WindowEvent::Moved` paired with `GetAsyncKeyState(VK_LBUTTON)`, preventing premature snapping when `startDragging()` resolves early on Windows.
 - Preserved pill visibility after clicking **Reset Position** in the inline Settings drawer by applying a post-reset grace period before idle auto-hide resumes.
 - Automatically pruned deleted files from *Recent File Activity* so every file row remains valid for 1-click Explorer reveal.
+- Expanded asymmetric transparent window shadow halo padding (`20px` top, `24px` sides, `30px` bottom) and calibrated Fluent elevation shadows so drop shadows fade smoothly with zero rectangular clipping on all sides.
 
 ## [0.1.0] - 2026-11-23
 
