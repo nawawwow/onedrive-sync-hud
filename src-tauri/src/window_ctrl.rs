@@ -3,10 +3,36 @@ use tauri::{LogicalSize, PhysicalPosition, PhysicalSize, WebviewWindow};
 
 pub const PILL_WIDTH_LOGICAL: f64 = 292.0;
 pub const PILL_HEIGHT_LOGICAL: f64 = 64.0;
-pub const CARD_WIDTH_LOGICAL: f64 = 368.0;
+pub const CARD_WIDTH_LOGICAL: f64 = 384.0;
 pub const CARD_DEFAULT_HEIGHT_LOGICAL: f64 = 456.0;
 const EDGE_MARGIN_LOGICAL: f64 = 12.0;
-const SNAP_THRESHOLD_LOGICAL: f64 = 22.0;
+const SNAP_THRESHOLD_LOGICAL: f64 = 26.0;
+
+#[cfg(windows)]
+pub fn is_left_mouse_button_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_LBUTTON};
+    unsafe { (GetAsyncKeyState(VK_LBUTTON.0 as i32) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(not(windows))]
+pub fn is_left_mouse_button_down() -> bool {
+    false
+}
+
+pub fn is_window_in_lower_half(window: &WebviewWindow) -> bool {
+    let Ok(pos) = window.outer_position() else {
+        return true;
+    };
+    let Ok(size) = window.outer_size() else {
+        return true;
+    };
+    if let Some(work) = current_monitor_work_area(window) {
+        let center_y = pos.y + (size.height as i32) / 2;
+        center_y > work.top + work.height() / 2
+    } else {
+        true
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct WorkArea {

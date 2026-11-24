@@ -24,6 +24,8 @@ struct VisibilityController {
     idle_since: Option<Instant>,
     last_state: SyncState,
     window_visible: bool,
+    ignore_moves_until: Option<Instant>,
+    pending_drag_settle_at: Option<Instant>,
 }
 
 impl Default for VisibilityController {
@@ -38,6 +40,8 @@ impl Default for VisibilityController {
             idle_since: None,
             last_state: SyncState::Unknown,
             window_visible: false,
+            ignore_moves_until: Some(Instant::now() + Duration::from_millis(600)),
+            pending_drag_settle_at: None,
         }
     }
 }
@@ -189,6 +193,8 @@ fn toggle_overlay_manual(app: &AppHandle) {
             vis.manually_hidden = true;
             vis.expanded = false;
             vis.manual_show_until = None;
+            vis.ignore_moves_until = Some(now + Duration::from_millis(450));
+            vis.pending_drag_settle_at = None;
             if let Some(window) = app.get_webview_window("main") {
                 window_ctrl::resize_with_smart_anchor(&window, false, None);
             }
@@ -291,8 +297,10 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
         tray::menu_ids::RESET_POSITION => {
             let state = app.state::<AppState>();
             if let Some(window) = app.get_webview_window("main") {
+                mark_programmatic_move(&state, 500);
                 if let Ok(mut vis) = state.visibility.lock() {
                     vis.expanded = false;
+                    vis.hovered = false;
                     vis.manually_hidden = false;
                     vis.manual_show_until = Some(Instant::now() + Duration::from_secs(10));
                 }
@@ -301,6 +309,7 @@ fn handle_tray_menu(app: &AppHandle, id: &str) {
                 s.position_x = Some(pos.x);
                 s.position_y = Some(pos.y);
                 let _ = app.emit("hud-expanded-changed", false);
+                let _ = app.emit("hud-anchor-changed", true);
                 let _ = apply_settings_update(app, s);
             }
         }
@@ -385,6 +394,53 @@ fn update_settings(
     apply_settings_update(&app, current)
 }
 
+fn mark_programmatic_move(state: &AppState, millis: u64) {
+    if let Ok(mut vis) = state.visibility.lock() {
+        vis.ignore_moves_until = Some(Instant::now() + Duration::from_millis(millis));
+        vis.pending_drag_settle_at = None;
+    }
+}
+
+fn settle_finished_drag_if_ready(app: &AppHandle, state: &AppState) {
+    let should_settle = {
+        let Ok(vis) = state.visibility.lock() else {
+            return;
+        };
+        let Some(settle_at) = vis.pending_drag_settle_at else {
+            return;
+        };
+        Instant::now() >= settle_at && !window_ctrl::is_left_mouse_button_down()
+    };
+
+    if !should_settle {
+        return;
+    }
+
+    if let Ok(mut vis) = state.visibility.lock() {
+        vis.pending_drag_settle_at = None;
+        vis.ignore_moves_until = Some(Instant::now() + Duration::from_millis(450));
+    }
+
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let snapped = window_ctrl::snap_and_clamp_after_drag(&window);
+    let lower_half = window_ctrl::is_window_in_lower_half(&window);
+    let _ = app.emit("hud-anchor-changed", lower_half);
+
+    let mut current = state
+        .settings
+        .lock()
+        .map(|g| g.clone())
+        .unwrap_or_default();
+    if current.position_x != Some(snapped.x) || current.position_y != Some(snapped.y) {
+        current.position_x = Some(snapped.x);
+        current.position_y = Some(snapped.y);
+        let _ = apply_settings_update(app, current);
+    }
+}
+
 #[tauri::command]
 fn set_expanded(
     app: AppHandle,
@@ -392,6 +448,7 @@ fn set_expanded(
     expanded: bool,
     target_height: Option<f64>,
 ) -> bool {
+    mark_programmatic_move(&state, 450);
     let mut expanded_upward = true;
     if let Some(window) = app.get_webview_window("main") {
         expanded_upward = window_ctrl::resize_with_smart_anchor(&window, expanded, target_height);
@@ -399,10 +456,10 @@ fn set_expanded(
     if let Ok(mut vis) = state.visibility.lock() {
         vis.expanded = expanded;
         if !expanded {
-            // Give a brief grace period after closing the panel before auto-hide kicks in
             vis.manual_show_until = Some(Instant::now() + Duration::from_secs(4));
         }
     }
+    let _ = app.emit("hud-anchor-changed", expanded_upward);
     evaluate_visibility(&app, &state);
     expanded_upward
 }
@@ -420,7 +477,10 @@ fn finish_drag(app: AppHandle, state: State<'_, AppState>) -> Result<(i32, i32),
     let Some(window) = app.get_webview_window("main") else {
         return Err("Main overlay window not found".to_string());
     };
+    mark_programmatic_move(&state, 450);
     let snapped = window_ctrl::snap_and_clamp_after_drag(&window);
+    let lower_half = window_ctrl::is_window_in_lower_half(&window);
+    let _ = app.emit("hud-anchor-changed", lower_half);
     let mut current = state
         .settings
         .lock()
@@ -440,6 +500,7 @@ fn dismiss_hud(app: AppHandle, state: State<'_, AppState>) {
         .map(|g| g.aggregate_state)
         .unwrap_or(SyncState::InSync);
 
+    mark_programmatic_move(&state, 450);
     if let Some(window) = app.get_webview_window("main") {
         window_ctrl::resize_with_smart_anchor(&window, false, None);
     }
@@ -462,8 +523,12 @@ fn reset_position(app: AppHandle, state: State<'_, AppState>) -> Result<(i32, i3
     let Some(window) = app.get_webview_window("main") else {
         return Err("Main overlay window not found".to_string());
     };
+    mark_programmatic_move(&state, 500);
     if let Ok(mut vis) = state.visibility.lock() {
         vis.expanded = false;
+        vis.hovered = false;
+        vis.manually_hidden = false;
+        vis.manual_show_until = Some(Instant::now() + Duration::from_secs(10));
     }
     let pos = window_ctrl::reset_window_position(&window);
     let mut current = state
@@ -474,6 +539,7 @@ fn reset_position(app: AppHandle, state: State<'_, AppState>) -> Result<(i32, i3
     current.position_x = Some(pos.x);
     current.position_y = Some(pos.y);
     let _ = app.emit("hud-expanded-changed", false);
+    let _ = app.emit("hud-anchor-changed", true);
     let _ = apply_settings_update(&app, current);
     Ok((pos.x, pos.y))
 }
@@ -594,10 +660,44 @@ pub fn run() {
         .setup(move |app| {
             let handle = app.handle().clone();
 
-            // 1. Position floating overlay window cleanly before showing
+            // 1. Position and immediately reveal floating overlay (unless fullscreen app is active)
             if let Some(window) = app.get_webview_window("main") {
                 window_ctrl::position_initial_window(&window, &loaded_settings);
+                let lower_half = window_ctrl::is_window_in_lower_half(&window);
+                let _ = handle.emit("hud-anchor-changed", lower_half);
+
+                let suppress_fs = loaded_settings.hide_in_fullscreen
+                    && onedrive::fullscreen::is_fullscreen_app_active();
+                if !suppress_fs {
+                    let _ = window.show();
+                    let st = handle.state::<AppState>();
+                    if let Ok(mut vis) = st.visibility.lock() {
+                        vis.window_visible = true;
+                    };
+                }
+
+                // Listen for user drag moves to run debounced edge-snapping & persistence after drop
+                let move_handle = handle.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Moved(_) = event {
+                        let st = move_handle.state::<AppState>();
+                        if let Ok(mut vis) = st.visibility.lock() {
+                            let now = Instant::now();
+                            if vis.ignore_moves_until.is_none_or(|until| now >= until) {
+                                vis.pending_drag_settle_at = Some(now + Duration::from_millis(280));
+                            }
+                        };
+                    }
+                });
             }
+
+            // 1b. Fast lightweight drag-settle watcher (200ms) so edge-snap & save feel instant on drop
+            let drag_handle = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_millis(160));
+                let st = drag_handle.state::<AppState>();
+                settle_finished_drag_if_ready(&drag_handle, &st);
+            });
 
             // 2. Register System Tray icon & menu
             let _ = tray::create_tray(
