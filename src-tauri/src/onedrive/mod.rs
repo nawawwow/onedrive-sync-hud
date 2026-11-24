@@ -4,6 +4,7 @@ pub mod file_watcher;
 pub mod fullscreen;
 pub mod status_ui;
 pub mod throughput;
+pub mod tray_tooltip;
 
 use crate::models::{AccountTelemetry, FileTransferState, HudSnapshot, SyncState};
 use accounts::{detect_onedrive_runtime, detect_windows_theme, discover_accounts, DiscoveredAccount};
@@ -13,15 +14,17 @@ use fullscreen::is_fullscreen_app_active;
 use status_ui::StatusUiClient;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use throughput::ThroughputTracker;
+use tray_tooltip::{TrayTooltipEntry, TrayTooltipReader};
 
 /// Max age in seconds for SyncDiagnostics.log numeric counters to be trusted as active
-/// when live StorageProviderStatusUI does not indicate active syncing.
+/// when live StorageProviderStatusUI / Tray Tooltip does not indicate active syncing.
 const FRESH_DIAGNOSTICS_MAX_AGE_SECS: u64 = 180;
 
 pub struct TelemetryEngine {
     accounts: Vec<DiscoveredAccount>,
     last_account_scan: Instant,
     status_client: StatusUiClient,
+    tooltip_reader: TrayTooltipReader,
     throughput: ThroughputTracker,
     file_tracker: FolderFileTracker,
 }
@@ -39,6 +42,7 @@ impl TelemetryEngine {
             accounts,
             last_account_scan: Instant::now(),
             status_client: StatusUiClient::new(),
+            tooltip_reader: TrayTooltipReader::new(),
             throughput: ThroughputTracker::new(),
             file_tracker,
         }
@@ -74,6 +78,11 @@ impl TelemetryEngine {
         if !runtime.running {
             self.status_client.clear();
         }
+        let tooltip_entries = if runtime.running {
+            self.tooltip_reader.read_entries()
+        } else {
+            Vec::new()
+        };
         let system_theme = detect_windows_theme();
         let is_fullscreen = is_fullscreen_app_active();
         let now_ms = SystemTime::now()
@@ -113,6 +122,8 @@ impl TelemetryEngine {
                 None
             };
 
+            let matched_tooltip = match_tooltip_for_account(&tooltip_entries, acc, self.accounts.len());
+
             // Detect elevation mismatch: when HUD runs elevated (High IL) while OneDrive.exe
             // runs normally (Medium IL), FileCoAuth returns Offline / "Start OneDrive" even
             // though OneDrive.exe is alive and actively syncing.
@@ -132,37 +143,60 @@ impl TelemetryEngine {
                         None,
                         Vec::new(),
                     )
-                } else if com_elevation_mismatch {
-                    let diag_active = diag
-                        .as_ref()
-                        .is_some_and(|d| d.is_fresh(FRESH_DIAGNOSTICS_MAX_AGE_SECS) && d.has_pending_work());
-                    if diag_active || active_file_count > 0 {
+                } else if com_elevation_mismatch || live_ui.is_none() {
+                    if let Some(tip) = matched_tooltip {
                         (
-                            SyncState::Syncing,
-                            "Syncing".to_string(),
-                            "Syncing changes".to_string(),
+                            tip.state,
+                            tip.state_label.clone(),
+                            tip.status_text.clone(),
                             None,
                             None,
                             Vec::new(),
                         )
                     } else {
-                        (
-                            SyncState::InSync,
-                            "Up to date".to_string(),
-                            "OneDrive running".to_string(),
-                            Some("Run HUD as standard user for full Windows quota & commands".to_string()),
-                            None,
-                            Vec::new(),
-                        )
+                        let diag_active = diag.as_ref().is_some_and(|d| {
+                            d.is_fresh(FRESH_DIAGNOSTICS_MAX_AGE_SECS) && d.has_pending_work()
+                        });
+                        if diag_active || active_file_count > 0 {
+                            (
+                                SyncState::Syncing,
+                                "Syncing".to_string(),
+                                "Syncing changes".to_string(),
+                                None,
+                                None,
+                                Vec::new(),
+                            )
+                        } else {
+                            (
+                                SyncState::InSync,
+                                "Up to date".to_string(),
+                                "All files synced".to_string(),
+                                None,
+                                None,
+                                Vec::new(),
+                            )
+                        }
                     }
                 } else if let Some(ref ui) = live_ui {
-                    let summary = ui
+                    let mut st = ui.state;
+                    let mut lbl = ui.state_label.clone();
+                    let mut summary = ui
                         .sync_command_label
                         .clone()
                         .unwrap_or_else(|| ui.state_label.clone());
+                    // Enrich with live tray tooltip if it reports a more specific active/error state
+                    if let Some(tip) = matched_tooltip {
+                        if tip.state.severity_rank() > st.severity_rank() {
+                            st = tip.state;
+                            lbl = tip.state_label.clone();
+                            summary = tip.status_text.clone();
+                        } else if st == SyncState::InSync && summary.eq_ignore_ascii_case(&lbl) {
+                            summary = tip.status_text.clone();
+                        }
+                    }
                     (
-                        ui.state,
-                        ui.state_label.clone(),
+                        st,
+                        lbl,
                         summary,
                         ui.sync_command_description.clone(),
                         ui.quota.clone(),
@@ -184,10 +218,14 @@ impl TelemetryEngine {
                 .map(|d| d.is_fresh(FRESH_DIAGNOSTICS_MAX_AGE_SECS))
                 .unwrap_or(false);
 
-            let parsed = live_ui
-                .as_ref()
-                .filter(|_| !com_elevation_mismatch)
-                .map(|u| &u.parsed_text);
+            let parsed = if !com_elevation_mismatch {
+                live_ui
+                    .as_ref()
+                    .map(|u| &u.parsed_text)
+                    .or_else(|| matched_tooltip.map(|t| &t.parsed))
+            } else {
+                matched_tooltip.map(|t| &t.parsed)
+            };
 
             let mut files_to_upload = parsed.and_then(|p| p.files_uploading).unwrap_or(0);
             let mut files_to_download = parsed.and_then(|p| p.files_downloading).unwrap_or(0);
@@ -360,6 +398,35 @@ impl TelemetryEngine {
             now_ms,
         )
     }
+}
+
+fn match_tooltip_for_account<'a>(
+    entries: &'a [TrayTooltipEntry],
+    acc: &DiscoveredAccount,
+    total_accounts: usize,
+) -> Option<&'a TrayTooltipEntry> {
+    if entries.is_empty() {
+        return None;
+    }
+    let disp_lower = acc.display_name.to_ascii_lowercase();
+    if let Some(exact) = entries
+        .iter()
+        .find(|e| e.account_title.to_ascii_lowercase() == disp_lower)
+    {
+        return Some(exact);
+    }
+    if !acc.is_business {
+        if let Some(personal) = entries
+            .iter()
+            .find(|e| e.account_title.to_ascii_lowercase().contains("personal"))
+        {
+            return Some(personal);
+        }
+    }
+    if total_accounts == 1 && entries.len() == 1 {
+        return Some(&entries[0]);
+    }
+    None
 }
 
 #[allow(clippy::too_many_arguments)]

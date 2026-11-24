@@ -8,73 +8,100 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_RECENT_FILES: usize = 14;
 
 pub struct FolderFileTracker {
-    _watchers: Vec<RecommendedWatcher>,
+    _watchers: Arc<Mutex<Vec<RecommendedWatcher>>>,
     recent_by_account: Arc<Mutex<HashMap<String, VecDeque<RecentFileItem>>>>,
 }
 
 impl FolderFileTracker {
+    /// Initializes recursive OneDrive directory watchers on a background thread so
+    /// application startup is instant even on OneDrive folders containing 300k+ files.
     pub fn new(account_folders: &[(String, String)]) -> Self {
         let recent_by_account: Arc<Mutex<HashMap<String, VecDeque<RecentFileItem>>>> =
             Arc::new(Mutex::new(HashMap::new()));
-        let mut watchers = Vec::new();
+        let watchers_holder: Arc<Mutex<Vec<RecommendedWatcher>>> =
+            Arc::new(Mutex::new(Vec::new()));
 
-        for (account_id, folder_str) in account_folders {
-            let folder_path = PathBuf::from(folder_str);
-            if !folder_path.exists() {
-                continue;
-            }
+        let folders_owned = account_folders.to_vec();
+        let store_bg = Arc::clone(&recent_by_account);
+        let watchers_bg = Arc::clone(&watchers_holder);
 
-            let store = Arc::clone(&recent_by_account);
-            let acc_id = account_id.clone();
-            let root_clone = folder_path.clone();
+        std::thread::spawn(move || {
+            let mut watchers = Vec::new();
+            for (account_id, folder_str) in folders_owned {
+                let folder_path = PathBuf::from(folder_str);
+                if !folder_path.exists() {
+                    continue;
+                }
 
-            let watcher_res = RecommendedWatcher::new(
-                move |res: Result<Event, notify::Error>| {
-                    let Ok(event) = res else { return };
-                    match event.kind {
-                        EventKind::Create(_) | EventKind::Modify(_) => {}
-                        _ => return,
-                    }
+                let store = Arc::clone(&store_bg);
+                let acc_id = account_id.clone();
+                let root_clone = folder_path.clone();
 
-                    for path in event.paths {
-                        if should_ignore_path(&path) || !path.is_file() {
-                            continue;
+                let watcher_res = RecommendedWatcher::new(
+                    move |res: Result<Event, notify::Error>| {
+                        let Ok(event) = res else { return };
+                        match event.kind {
+                            EventKind::Create(_) | EventKind::Modify(_) => {}
+                            EventKind::Remove(_) => {
+                                if let Ok(mut map) = store.lock() {
+                                    if let Some(list) = map.get_mut(&acc_id) {
+                                        for p in &event.paths {
+                                            let p_str = p.to_string_lossy();
+                                            list.retain(|existing| {
+                                                !existing.path.eq_ignore_ascii_case(&p_str)
+                                            });
+                                        }
+                                    }
+                                }
+                                return;
+                            }
+                            _ => return,
                         }
-                        if let Some(item) = build_recent_item(&root_clone, &path) {
-                            if let Ok(mut map) = store.lock() {
-                                let list = map.entry(acc_id.clone()).or_default();
-                                list.retain(|existing| {
-                                    !existing.path.eq_ignore_ascii_case(&item.path)
-                                });
-                                list.push_front(item);
-                                while list.len() > MAX_RECENT_FILES {
-                                    list.pop_back();
+
+                        for path in event.paths {
+                            if should_ignore_path(&path) || !path.is_file() {
+                                continue;
+                            }
+                            if let Some(item) = build_recent_item(&root_clone, &path) {
+                                if let Ok(mut map) = store.lock() {
+                                    let list = map.entry(acc_id.clone()).or_default();
+                                    list.retain(|existing| {
+                                        !existing.path.eq_ignore_ascii_case(&item.path)
+                                    });
+                                    list.push_front(item);
+                                    while list.len() > MAX_RECENT_FILES {
+                                        list.pop_back();
+                                    }
                                 }
                             }
                         }
-                    }
-                },
-                Config::default(),
-            );
+                    },
+                    Config::default(),
+                );
 
-            if let Ok(mut watcher) = watcher_res {
-                if watcher
-                    .watch(&folder_path, RecursiveMode::Recursive)
-                    .is_ok()
-                {
-                    watchers.push(watcher);
+                if let Ok(mut watcher) = watcher_res {
+                    if watcher
+                        .watch(&folder_path, RecursiveMode::Recursive)
+                        .is_ok()
+                    {
+                        watchers.push(watcher);
+                    }
                 }
             }
-        }
+
+            if let Ok(mut guard) = watchers_bg.lock() {
+                *guard = watchers;
+            }
+        });
 
         Self {
-            _watchers: watchers,
+            _watchers: watchers_holder,
             recent_by_account,
         }
     }
 
-    /// Re-evaluates Shell StorageProviderState on recently tracked files so syncing items
-    /// transition cleanly to synced or error as OneDrive finishes processing them.
+    /// Prunes deleted files and re-evaluates Shell StorageProviderState on recently tracked
+    /// files so every row stays clickable and reflects live sync completion.
     pub fn snapshot_and_refresh(&self, account_id: &str) -> Vec<RecentFileItem> {
         let Ok(mut map) = self.recent_by_account.lock() else {
             return Vec::new();
@@ -83,11 +110,10 @@ impl FolderFileTracker {
             return Vec::new();
         };
 
+        list.retain(|item| Path::new(&item.path).exists());
+
         for item in list.iter_mut() {
             let path = Path::new(&item.path);
-            if !path.exists() {
-                continue;
-            }
             if let Ok(meta) = std::fs::metadata(path) {
                 item.size_bytes = meta.len();
             }
