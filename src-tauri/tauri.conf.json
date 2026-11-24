@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "OneDrive Sync HUD",
-        "width": 292,
-        "height": 64,
+        "width": 324,
+        "height": 96,
         "resizable": false,
         "decorations": false,
         "transparent": true,

@@ -1,11 +1,13 @@
 use crate::models::AppSettings;
 use tauri::{LogicalSize, PhysicalPosition, PhysicalSize, WebviewWindow};
 
-pub const PILL_WIDTH_LOGICAL: f64 = 292.0;
-pub const PILL_HEIGHT_LOGICAL: f64 = 64.0;
-pub const CARD_WIDTH_LOGICAL: f64 = 384.0;
-pub const CARD_DEFAULT_HEIGHT_LOGICAL: f64 = 456.0;
-const EDGE_MARGIN_LOGICAL: f64 = 12.0;
+// Outer window dimensions include asymmetric transparent shadow halo padding
+// (20px top, 24px left/right, 30px bottom) exceeding 1.5x Skia Gaussian blur tail.
+pub const PILL_WIDTH_LOGICAL: f64 = 324.0;
+pub const PILL_HEIGHT_LOGICAL: f64 = 96.0;
+pub const CARD_WIDTH_LOGICAL: f64 = 416.0;
+pub const CARD_DEFAULT_HEIGHT_LOGICAL: f64 = 506.0;
+const EDGE_MARGIN_LOGICAL: f64 = 0.0;
 const SNAP_THRESHOLD_LOGICAL: f64 = 26.0;
 
 #[cfg(windows)]
@@ -274,7 +276,7 @@ pub fn resize_with_smart_anchor(
     let (target_w_log, target_h_log) = if expanded {
         let h = requested_height_logical
             .unwrap_or(CARD_DEFAULT_HEIGHT_LOGICAL)
-            .clamp(300.0, 560.0);
+            .clamp(340.0, 620.0);
         (CARD_WIDTH_LOGICAL, h)
     } else {
         (PILL_WIDTH_LOGICAL, PILL_HEIGHT_LOGICAL)

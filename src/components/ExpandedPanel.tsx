@@ -80,7 +80,8 @@ export function ExpandedPanel({
     const notify = () => {
       const rect = el.getBoundingClientRect();
       if (rect.height > 100) {
-        onMeasureHeight(Math.ceil(rect.height) + 20);
+        // 20px top + 30px bottom transparent shadow halo (exceeds 1.5x Skia blur tail)
+        onMeasureHeight(Math.ceil(rect.height) + 50);
       }
     };
     notify();

@@ -45,7 +45,7 @@ export function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [expanded, setExpanded] = useState(false);
   const [expandedUpward, setExpandedUpward] = useState(true);
-  const lastHeightRef = useRef<number>(456);
+  const lastHeightRef = useRef<number>(496);
 
   useEffect(() => {
     let active = true;
