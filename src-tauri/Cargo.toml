@@ -1,6 +1,6 @@
 [package]
 name = "onedrive-sync-hud"
-version = "0.1.0"
+version = "0.1.1"
 description = "Lightweight floating Windows 11 Fluent Glass HUD for Microsoft OneDrive sync progress"
 authors = ["Ahmad Nawawi"]
 license = "MIT"

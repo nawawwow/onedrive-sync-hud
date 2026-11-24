@@ -115,7 +115,7 @@ npm run tauri build
 Generated Windows release artifacts:
 
 - **Standalone Portable Executable**: `src-tauri/target/release/onedrive-sync-hud.exe`
-- **Windows NSIS Installer**: `src-tauri/target/release/bundle/nsis/OneDrive Sync HUD_0.1.0_x64-setup.exe`
+- **Windows NSIS Installer**: `src-tauri/target/release/bundle/nsis/OneDrive Sync HUD_0.1.1_x64-setup.exe`
 
 ---
 

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-24
+
+### Added
+
+- Native Windows UI Automation (`IUIAutomation`) taskbar tray tooltip reader (`Shell_TrayWnd` and overflow flyout) to capture real-time OneDrive status strings reliably under both standard user and elevated sessions.
+- Dynamic compact pill chevron direction synced with screen half (`hud-anchor-changed`), pointing upward in the lower half and downward in the upper half.
+
+### Changed
+
+- Widened the expanded Fluent Glass detail card to `384px` and moved the status badge onto the subtitle row so full account names (such as `OneDrive - Personal`) never truncate.
+- Moved recursive OneDrive folder watcher initialization onto a background thread and displayed the pill immediately on startup for near-instant launch visibility.
+
+### Fixed
+
+- Debounced drag-end edge snapping and position persistence using `WindowEvent::Moved` paired with `GetAsyncKeyState(VK_LBUTTON)`, preventing premature snapping when `startDragging()` resolves early on Windows.
+- Preserved pill visibility after clicking **Reset Position** in the inline Settings drawer by applying a post-reset grace period before idle auto-hide resumes.
+- Automatically pruned deleted files from *Recent File Activity* so every file row remains valid for 1-click Explorer reveal.
+
 ## [0.1.0] - 2026-11-23
 
 ### Added
@@ -18,5 +36,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Smart visibility engine with configurable idle auto-hide, persistent error/paused alerts with dismiss control, and fullscreen application detection.
 - Dynamic System Tray icon and quick menu, global `Ctrl+Alt+O` show/hide shortcut, multi-monitor drag with edge snapping, position lock, opacity control, automatic Windows Light/Dark Fluent Glass theming, and optional **Start with Windows** integration.
 
-[Unreleased]: https://github.com/nawawwow/onedrive-sync-hud/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/nawawwow/onedrive-sync-hud/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/nawawwow/onedrive-sync-hud/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/nawawwow/onedrive-sync-hud/releases/tag/v0.1.0
